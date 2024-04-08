@@ -19,7 +19,7 @@
 import base64
 import json
 import platform
-from typing import Any, Callable, Tuple
+from typing import Any, Callable, Dict, Tuple
 
 import cloudpickle
 
@@ -29,6 +29,7 @@ STRING_OFFSET_BYTES = 8
 DATA_OFFSET_BYTES = 8
 HEADER_OFFSET = STRING_OFFSET_BYTES + DATA_OFFSET_BYTES
 BYTE_ORDER = "big"
+TOBJ_FMT_STR = "0.1"
 
 
 class TOArchiveUtils:
@@ -103,7 +104,7 @@ class TransportableObject:
         self._buffer.extend(b"\0" * HEADER_OFFSET)
 
         _header = {
-            "format": "0.1",
+            "format": TOBJ_FMT_STR,
             "ver": {
                 "python": platform.python_version(),
                 "cloudpickle": cloudpickle.__version__,
@@ -125,7 +126,7 @@ class TransportableObject:
         self._buffer.extend(object_string_u8)
         del object_string_u8
 
-        # Append picklebytes
+        # Append picklebytes (not base64-encoded)
         cloudpickle.dump(obj, _ByteArrayFile(self._buffer))
 
         # Write byte offsets
@@ -287,8 +288,57 @@ class TransportableObject:
             object: The deserialized transportable object.
         """
         to = TransportableObject(None)
-        to._buffer = serialized
+        header = TOArchiveUtils.header(serialized)
+
+        # For backward compatibility
+        if header.get("format") is None:
+            # Re-encode TObj serialized using older versions of the SDK,
+            # characterized by the lack of a "format" field in the
+            # header. TObj was previously serialized as
+            # [offsets][header][string][b64-encoded picklebytes],
+            # whereas starting from format 0.1 we store them as
+            # [offsets][header][string][picklebytes].
+            to._buffer = TransportableObject._upgrade_tobj_format(serialized, header)
+        else:
+            to._buffer = serialized
         return to
+
+    @staticmethod
+    def _upgrade_tobj_format(serialized: bytes, header: Dict) -> bytes:
+        """Re-encode a serialized TObj in the newer format.
+
+        This involves adding a format version in the header and
+        base64-decoding the data segment. Because the header at the
+        beginning of the byte array, the string and data offsets need
+        to be recomputed.
+        """
+        buf = bytearray()
+
+        # Upgrade header and recompute byte offsets
+        header["format"] = TOBJ_FMT_STR
+        serialized_header = json.dumps(header).encode("utf-8")
+        string_offset = HEADER_OFFSET + len(serialized_header)
+
+        # This is just a view into the bytearray and consumes
+        # negligible space on its own.
+        string_segment = TOArchiveUtils.string_segment(serialized)
+
+        data_offset = string_offset + len(string_segment)
+        string_offset_bytes = string_offset.to_bytes(STRING_OFFSET_BYTES, BYTE_ORDER)
+        data_offset_bytes = data_offset.to_bytes(DATA_OFFSET_BYTES, BYTE_ORDER)
+
+        # Write the new byte offsets
+        buf.extend(b"\0" * HEADER_OFFSET)
+        buf[:STRING_OFFSET_BYTES] = string_offset_bytes
+        buf[STRING_OFFSET_BYTES:HEADER_OFFSET] = data_offset_bytes
+
+        buf.extend(serialized_header)
+        buf.extend(string_segment)
+
+        # base64-decode the data segment into raw picklebytes
+        buf.extend(base64.b64decode(TOArchiveUtils.data_segment(serialized)))
+
+        return buf
 
     @staticmethod
     def deserialize_list(collection: list) -> list:

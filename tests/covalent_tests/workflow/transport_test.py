@@ -17,6 +17,7 @@
 """Unit tests for transport graph."""
 
 import base64
+import json
 import platform
 from unittest.mock import call
 
@@ -32,6 +33,11 @@ from covalent._workflow.transport import (
     add_module_deps_to_lattice_metadata,
     encode_metadata,
     pickle_modules_by_value,
+)
+from covalent._workflow.transportable_object import (
+    BYTE_ORDER,
+    DATA_OFFSET_BYTES,
+    STRING_OFFSET_BYTES,
 )
 from covalent.executor import LocalExecutor
 from covalent.triggers import BaseTrigger
@@ -79,6 +85,109 @@ def workflow_transport_graph():
         name="identity", kwargs={"x": 2}, function=subtask_2, metadata={"mock_field": "mock_value"}
     )
     return tg
+
+
+# For testing TObj back-compat -- copied from earlier SDK
+class _TOArchive:
+
+    """Archived transportable object."""
+
+    def __init__(self, header: bytes, object_string: bytes, data: bytes):
+        """
+        Initialize TOArchive.
+
+        Args:
+            header: Archived transportable object header.
+            object_string: Archived transportable object string.
+            data: Archived transportable object data.
+
+        Returns:
+            None
+        """
+
+        self.header = header
+        self.object_string = object_string
+        self.data = data
+
+    def cat(self) -> bytes:
+        """
+        Concatenate TOArchive.
+
+        Returns:
+            Concatenated TOArchive.
+
+        """
+
+        header_size = len(self.header)
+        string_size = len(self.object_string)
+        data_offset = STRING_OFFSET_BYTES + DATA_OFFSET_BYTES + header_size + string_size
+        string_offset = STRING_OFFSET_BYTES + DATA_OFFSET_BYTES + header_size
+
+        data_offset = data_offset.to_bytes(DATA_OFFSET_BYTES, BYTE_ORDER, signed=False)
+        string_offset = string_offset.to_bytes(STRING_OFFSET_BYTES, BYTE_ORDER, signed=False)
+
+        return string_offset + data_offset + self.header + self.object_string + self.data
+
+
+# Copied from previous SDK version
+class LegacyTransportableObject:
+    """
+    A function is converted to a transportable object by serializing it using cloudpickle
+    and then whenever executing it, the transportable object is deserialized. The object
+    will also contain additional info like the python version used to serialize it.
+
+    Attributes:
+        _object: The serialized object.
+        python_version: The python version used on the client's machine.
+    """
+
+    def __init__(self, obj) -> None:
+        b64object = base64.b64encode(cloudpickle.dumps(obj))
+        object_string_u8 = str(obj).encode("utf-8")
+
+        self._object = b64object.decode("utf-8")
+        self._object_string = object_string_u8.decode("utf-8")
+
+        self._header = {
+            "py_version": platform.python_version(),
+            "cloudpickle_version": cloudpickle.__version__,
+            "attrs": {
+                "doc": getattr(obj, "__doc__", ""),
+                "name": getattr(obj, "__name__", ""),
+            },
+        }
+
+    # For testing TObj back-compat
+    @staticmethod
+    def _to_archive(to) -> _TOArchive:
+        """
+        Convert a TransportableObject to a _TOArchive.
+
+        Args:
+            to: Transportable object to be converted.
+
+        Returns:
+            Archived transportable object.
+
+        """
+
+        header = json.dumps(to._header).encode("utf-8")
+        object_string = to._object_string.encode("utf-8")
+        data = to._object.encode("utf-8")
+        return _TOArchive(header=header, object_string=object_string, data=data)
+
+    def serialize(self) -> bytes:
+        """
+        Serialize the transportable object.
+
+        Args:
+            None
+
+        Returns:
+            pickled_object: The serialized object alongwith the python version.
+        """
+
+        return LegacyTransportableObject._to_archive(self).cat()
 
 
 def test_transportable_object_python_version(transportable_object):
@@ -188,6 +297,16 @@ def test_transportable_object_deserialize_dict(transportable_object):
     }
 
     assert TransportableObject.deserialize_dict(serialized_dict) == deserialized
+
+
+def test_tobj_deserialize_back_compat():
+    lto = LegacyTransportableObject({"a": 5})
+    serialized = lto.serialize()
+    to = TransportableObject.deserialize(serialized)
+    obj = to.get_deserialized()
+    assert obj == {"a": 5}
+    obj2 = TransportableObject.deserialize(to.serialize()).get_deserialized()
+    assert obj2 == {"a": 5}
 
 
 def test_transport_graph_initialization():
