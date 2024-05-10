@@ -105,10 +105,8 @@ class TransportableObject:
 
         _header = {
             "format": TOBJ_FMT_STR,
-            "ver": {
-                "python": platform.python_version(),
-                "cloudpickle": cloudpickle.__version__,
-            },
+            "py_version": platform.python_version(),
+            "cloudpickle_version": cloudpickle.__version__,
             "attrs": {
                 "doc": getattr(obj, "__doc__", ""),
                 "name": getattr(obj, "__name__", ""),
@@ -140,7 +138,7 @@ class TransportableObject:
 
     @property
     def python_version(self):
-        return self.header["ver"]["python"]
+        return self.header["py_version"]
 
     @property
     def header(self):
