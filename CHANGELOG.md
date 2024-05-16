@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Improved handling of Covalent version mismatches between client and
   executor environments
+- `get_result(wait=True)` will wait as long as needed
   
 ### Removed
 
