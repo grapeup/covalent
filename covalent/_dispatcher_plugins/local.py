@@ -659,8 +659,10 @@ def _put_asset(local_uri, remote_uri):
         host = f.host
         port = f.port
         dispatcher_addr = f"{scheme}://{host}:{port}"
-        endpoint = str(f.path)
         api_client = APIClient(dispatcher_addr)
+        endpoint = str(f.path)
+        if f.query:
+            endpoint += f"?{f.query}"
 
         # Work around Requests bug when streaming empty files
         data = reader.read() if filesize < 50 else reader
