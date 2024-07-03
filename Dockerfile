@@ -299,8 +299,17 @@ ARG COVALENT_DISABLE_DASK
 ARG COVALENT_NUM_WORKERS
 ARG COVALENT_THREADS_PER_WORKER
 ARG COVALENT_MEM_PER_WORKER
+ARG COVALENT_ROOT
 
 LABEL org.opencontainers.image.title="Covalent Server"
+
+USER root
+
+RUN apt-get update &&  apt-get upgrade -y && apt-get install -y debian-archive-keyring && \
+    apt-get install -y curl && \
+    rm -rf /var/lib/apt/lists/*
+
+USER $USER
 
 COPY --from=build_base /usr/bin/wget /usr/bin/wget
 COPY --from=build_base /usr/lib/x86_64-linux-gnu/libpcre2-8.so.0 /usr/lib/x86_64-linux-gnu/libpcre2-8.so.0
@@ -318,6 +327,13 @@ RUN <<EOL
 EOL
 
 USER $USER
+
+COPY giq-dev.json /tmp/giq-dev.json
+
+WORKDIR $COVALENT_ROOT
+ENV PATH="${COVALENT_ROOT}/google-cloud-sdk/bin:${PATH}"
+RUN curl -sSL https://sdk.cloud.google.com > /tmp/install.sh && /bin/bash /tmp/install.sh --disable-prompts --install-dir=${COVALENT_ROOT} && \
+    gcloud auth activate-service-account --key-file /tmp/giq-dev.json
 
 ENV COVALENT_SVC_PORT=${COVALENT_SVC_PORT} \
   COVALENT_DATABASE_DIR=${COVALENT_DATABASE_DIR} \
