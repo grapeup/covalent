@@ -13,3 +13,4 @@ pytest-mock>=3.8.2
 pytest-rerunfailures>=10.2
 scikit-image>=0.19.1
 scikit-learn>=1.2.2
+vertexai>=0.1.0

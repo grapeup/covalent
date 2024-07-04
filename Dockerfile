@@ -300,14 +300,15 @@ ARG COVALENT_NUM_WORKERS
 ARG COVALENT_THREADS_PER_WORKER
 ARG COVALENT_MEM_PER_WORKER
 ARG COVALENT_ROOT
+ARG GIQ_DEV_JSON=giq-dev.json
 
 LABEL org.opencontainers.image.title="Covalent Server"
 
 USER root
 
 RUN apt-get update &&  apt-get upgrade -y && apt-get install -y debian-archive-keyring && \
-    apt-get install -y curl && \
-    rm -rf /var/lib/apt/lists/*
+  apt-get install -y curl && \
+  rm -rf /var/lib/apt/lists/*
 
 USER $USER
 
@@ -328,12 +329,11 @@ EOL
 
 USER $USER
 
-COPY giq-dev.json /tmp/giq-dev.json
+COPY --from=covalent_src  $BUILDROOT/${GIQ_DEV_JSON} ${COVALENT_ROOT}/${GIQ_DEV_JSON}
+COPY --from=covalent_src  $BUILDROOT/tests/test.py ${COVALENT_ROOT}/tests/test.py
 
 WORKDIR $COVALENT_ROOT
 ENV PATH="${COVALENT_ROOT}/google-cloud-sdk/bin:${PATH}"
-RUN curl -sSL https://sdk.cloud.google.com > /tmp/install.sh && /bin/bash /tmp/install.sh --disable-prompts --install-dir=${COVALENT_ROOT} && \
-    gcloud auth activate-service-account --key-file /tmp/giq-dev.json
 
 ENV COVALENT_SVC_PORT=${COVALENT_SVC_PORT} \
   COVALENT_DATABASE_DIR=${COVALENT_DATABASE_DIR} \
@@ -344,7 +344,11 @@ ENV COVALENT_SVC_PORT=${COVALENT_SVC_PORT} \
   COVALENT_THREADS_PER_WORKER=${COVALENT_THREADS_PER_WORKER} \
   COVALENT_MEM_PER_WORKER=${COVALENT_MEM_PER_WORKER} \
   COVALENT_DISABLE_DASK=${COVALENT_DISABLE_DASK} \
-  COVALENT_SERVER_IFACE_ANY=1
+  COVALENT_SERVER_IFACE_ANY=1 \
+  GOOGLE_APPLICATION_CREDENTIALS=${COVALENT_ROOT}/${GIQ_DEV_JSON}
+
+RUN curl -sSL https://sdk.cloud.google.com > /tmp/install.sh && /bin/bash /tmp/install.sh --disable-prompts --install-dir=${COVALENT_ROOT}
+RUN gcloud auth activate-service-account --key-file=${COVALENT_ROOT}/${GIQ_DEV_JSON}
 
 EXPOSE ${COVALENT_SVC_PORT}
 
