@@ -34,7 +34,8 @@ exclude_modules = [
     "tests",
     "tests.*",
 ]
-sdk_only = os.environ.get("COVALENT_SDK_ONLY") == "1"
+# sdk_only = os.environ.get("COVALENT_SDK_ONLY") == "1"
+sdk_only = True
 if sdk_only:
     requirements_file = "requirements-client.txt"
     exclude_modules += [
